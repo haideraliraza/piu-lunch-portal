@@ -1,0 +1,15 @@
+<?xml version='1.0' encoding='utf-8'?>
+<widget id="com.piu.lunchportal" version="1.0.0" xmlns="http://www.w3.org/ns/widgets" xmlns:cdv="http://cordova.apache.org/ns/1.0">
+    <name>PIU Lunch Portal</name>
+    <description>Lunch Management Portal for PIU Staff</description>
+    <author email="support@piu.gov" href="http://piu.gov">PIU Team</author>
+    <content src="index.html" />
+    <access origin="*" />
+    <allow-intent href="http://*/*" />
+    <allow-intent href="https://*/*" />
+    <preference name="LogLevel" value="DEBUG" />
+    <platform name="android">
+        <allow-intent href="market:*" />
+        <preference name="AndroidXEnabled" value="true" />
+    </platform>
+</widget>
