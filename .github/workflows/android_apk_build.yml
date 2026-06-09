@@ -55,19 +55,30 @@ jobs:
         export ANDROID_HOME=$ANDROID_SDK_ROOT
         
         echo "=== Launching Cordova Compilation Pipeline ==="
-        # Added --packageType=apk to force Cordova to generate a downloadable APK file
         cordova build android --release --no-telemetry -- --packageType=apk || exit 1
         
-        # 5. Extract the generated APK and copy it safely to the main repository root
-        echo "=== Locating compiled binaries ==="
-        APK_COUNT=$(find . -name "*.apk" | wc -l)
-        if [ "$APK_COUNT" -eq 0 ]; then
-          echo "ERROR: Cordova claimed success but zero APK files exist in the build directory."
-          exit 1
+        # 5. Locate the raw unsigned APK file
+        UNSIGNED_APK=$(find platforms/android/app/build/outputs/apk/release/ -name "*-unsigned.apk" | head -n 1)
+        if [ -z "$UNSIGNED_APK" ]; then
+          UNSIGNED_APK=$(find platforms/android/app/build/outputs/apk/release/ -name "*.apk" | head -n 1)
         fi
         
-        find . -name "*.apk" -exec cp {} ../piu-lunch-portal.apk \;
-        echo "=== Success! Binary moved to root ==="
+        echo "Found target binary at: $UNSIGNED_APK"
+        
+        # 6. Generate a temporary keystore file to sign the app automatically
+        keytool -genkey -v -keystore release.keystore -alias piu_alias -keyalg RSA -keysize 2048 -validity 10000 -storepass piu_password -keypass piu_password -dname "CN=piu.gov, OU=IT, O=PIU, L=Islamabad, S=Federal, C=PK"
+        
+        # 7. Use Android SDK build tools to optimize and sign the binary
+        BUILD_TOOLS_DIR=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -n 1)
+        echo "Using Android Build Tools from: $BUILD_TOOLS_DIR"
+        
+        # Optimize alignment for hardware execution memory
+        $BUILD_TOOLS_DIR/zipalign -v 4 "$UNSIGNED_APK" ../piu-lunch-portal-aligned.apk
+        
+        # Cryptographically sign the APK file so Android phones accept it
+        $BUILD_TOOLS_DIR/apksigner sign --ks release.keystore --ks-pass pass:piu_password --key-pass pass:piu_password --out ../piu-lunch-portal.apk ../piu-lunch-portal-aligned.apk
+        
+        echo "=== Success! Cryptographically signed binary moved to root ==="
 
     - name: Upload Downloadable APK Installer Artifact
       uses: actions/upload-artifact@v4
