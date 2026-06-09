@@ -60,13 +60,29 @@
         setLoading(true);
         setLoginError("");
         try {
-          const data = await supabaseRequest(`profiles?username=eq.${encodeURIComponent(loginForm.username)}&select=*`);
-          if (data && data.length > 0 && data[0].password === loginForm.password) {
-            setUser({ username: data[0].username, role: data[0].role, balance: data[0].balance });
-          } else {
+          // 1. Force lowercase and remove accidental spaces from the input
+          const cleanUsername = loginForm.username.toLowerCase().trim();
+          
+          // 2. Fetch data from Supabase
+          const data = await supabaseRequest(`profiles?username=eq.${encodeURIComponent(cleanUsername)}&select=*`);
+          
+          // 3. Diagnostic Alert System
+          if (!data) {
+            alert("Diagnostic Alert: The database returned a completely null response. Check your API Keys.");
+            setLoginError("Invalid response from database.");
+          } else if (data.length === 0) {
+            alert(`Diagnostic Alert: Connected successfully! However, the username "${cleanUsername}" was not found in your profiles table rows.`);
             setLoginError("Invalid username or password.");
+          } else if (data[0].password !== loginForm.password) {
+            alert(`Diagnostic Alert: User found! Database password is "${data[0].password}", but you typed "${loginForm.password}".`);
+            setLoginError("Invalid username or password.");
+          } else {
+            // 4. Successful match
+            setUser({ username: data[0].username, role: data[0].role, balance: data[0].balance });
           }
         } catch (err) {
+          // Captures network drops, SSL failures, or broken URLs
+          alert("System Connection Error: " + err.message);
           setLoginError(err.message);
         }
         setLoading(false);
