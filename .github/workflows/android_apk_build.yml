@@ -40,28 +40,29 @@ jobs:
 
     - name: Initialize App Container and Compile APK
       run: |
-        # 1. Create a fresh Cordova project folder inside the runner workspace
+        # 1. Initialize clean Cordova project
         cordova create lunch-build-container com.piu.lunchportal "PIU Lunch Portal"
-        
-        # 2. Move into that fresh project directory
         cd lunch-build-container
         
-        # 3. Clear out Cordova's default placeholder web page files
+        # 2. Inject your Supabase frontend asset
         rm -rf www/*
-        
-        # 4. Copy your custom Supabase index.html file into the Cordova web assets directory
         cp ../index.html www/index.html
         
-        # 5. Add the clean native Android platform layer
+        # 3. Provision native platform
         cordova platform add android
         
-        # 6. Compile your distribution production-ready release binary package
+        # 4. Compile application package
         export ANDROID_HOME=$ANDROID_SDK_ROOT
         cordova build android --release --no-telemetry
+        
+        # 5. Extract the generated APK and move it safely to the main repository root
+        echo "=== Locating compiled binaries ==="
+        find . -name "*.apk" -exec cp {} ../piu-lunch-portal.apk \;
+        echo "=== Success! Binary moved to root ==="
 
     - name: Upload Downloadable APK Installer Artifact
       uses: actions/upload-artifact@v4
       with:
         name: piu-lunch-app-apk
-        # This wildcard pattern searches all folders to guarantee it catches the file
-        path: lunch-build-container/**/*.apk
+        # Look directly in your main root directory for the explicitly copied file
+        path: piu-lunch-portal.apk
