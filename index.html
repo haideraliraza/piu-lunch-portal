@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PIU Lunch Balance Management System</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 font-sans">
+
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const SUPABASE_URL = "https://clwcslxcsbvhxxinomuq.supabase.co";
+    const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNsd2NzbHhjc2J2aHh4aW5vbXVxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEwMDIyODEsImV4cCI6MjA5NjU3ODI4MX0.ldUA1tK2kgwvvMGgePwQ5eTYTgFMVYAd6t_hbR9-VNY";
+
+    // Global helper for secure API requests directly to the database
+    async function supabaseRequest(endpoint, options = {}) {
+      const headers = {
+        "apikey": SUPABASE_KEY,
+        "Authorization": `Bearer ${SUPABASE_KEY}`,
+        "Content-Type": "application/json",
+        ...options.headers
+      };
+      const response = await fetch(`${SUPABASE_URL}/rest/v1/${endpoint}`, { ...options, headers });
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.message || "Database execution failed");
+      }
+      return response.status !== 204 ? await response.json() : null;
+    }
+
+    function App() {
+      const [user, setUser] = React.useState(null);
+      const [loginForm, setLoginForm] = React.useState({ username: "", password: "" });
+      const [loginError, setLoginError] = React.useState("");
+      const [loading, setLoading] = React.useState(false);
+      const [users, setUsers] = React.useState([]);
+      const [transactions, setTransactions] = React.useState([]);
+      const [activeTab, setActiveTab] = React.useState("dashboard");
+
+      // Super User Forms
+      const [newUser, setNewUser] = React.useState({ username: "", password: "" });
+      const [creditForm, setCreditForm] = React.useState({ username: "", amount: "", remarks: "" });
+      const [bulkSelection, setBulkSelection] = React.useState({});
+      const [bulkAmountType, setBulkAmountType] = React.useState("flat"); 
+      const [flatAmount, setFlatAmount] = React.useState("350");
+      const [customAmounts, setCustomAmounts] = React.useState({});
+      const [deductionRemarks, setDeductionRemarks] = React.useState("Daily Lunch Deduction");
+
+      React.useEffect(() => {
+        if (user) { loadData(); }
+      }, [user]);
+
+      const handleLogin = async (e) => {
+        e.preventDefault();
+        setLoading(true);
+        setLoginError("");
+        try {
+          const data = await supabaseRequest(`profiles?username=eq.${encodeURIComponent(loginForm.username)}&select=*`);
+          if (data && data.length > 0 && data[0].password === loginForm.password) {
+            setUser({ username: data[0].username, role: data[0].role, balance: data[0].balance });
+          } else {
+            setLoginError("Invalid username or password.");
+          }
+        } catch (err) {
+          setLoginError(err.message);
+        }
+        setLoading(false);
+      };
+
+      const loadData = async () => {
+        setLoading(true);
+        try {
+          const fetchedUsers = await supabaseRequest("profiles?select=*&order=username.asc");
+          setUsers(fetchedUsers);
+          
+          // Re-sync current logged-in user balance info dynamically
+          const self = fetchedUsers.find(u => u.username === user.username);
+          if (self) setUser(prev => ({ ...prev, balance: self.balance }));
+
+          const fetchedTx = await supabaseRequest("transactions?select=*&order=timestamp.desc&limit=50");
+          setTransactions(fetchedTx);
+        } catch (err) {
+          alert("Error refreshing system metrics: " + err.message);
+        }
+        setLoading(false);
+      };
+
+      const handleCreateUser = async (e) => {
+        e.preventDefault();
+        setLoading(true);
+        try {
+          await supabaseRequest("profiles", {
+            method: "POST",
+            body: JSON.stringify({ username: newUser.username, password: newUser.password, role: "Simple User", balance: 0 })
+          });
+          alert("User created successfully!");
+          setNewUser({ username: "", password: "" });
+          loadData();
+        } catch (err) { alert(err.message); }
+        setLoading(false);
+      };
+
+      const handleAddCredit = async (e) => {
+        e.preventDefault();
+        setLoading(true);
+        try {
+          const target = users.find(u => u.username === creditForm.username);
+          const newBalance = Number(target.balance) + Number(creditForm.amount);
+          
+          await supabaseRequest(`profiles?username=eq.${encodeURIComponent(target.username)}`, {
+            method: "PATCH",
+            body: JSON.stringify({ balance: newBalance })
+          });
+
+          await supabaseRequest("transactions", {
+            method: "POST",
+            body: JSON.stringify({ target_user: target.username, type: "Credit", amount: creditForm.amount, executed_by: user.username, remarks: creditForm.remarks })
+          });
+
+          alert("Credit added successfully!");
+          setCreditForm({ username: "", amount: "", remarks: "" });
+          loadData();
+        } catch (err) { alert(err.message); }
+        setLoading(false);
+      };
+
+      const executeBulkDeduction = async () => {
+        const targets = Object.keys(bulkSelection).filter(k => bulkSelection[k]);
+        if (targets.length === 0) { alert("Select at least one user."); return; }
+        setLoading(true);
+
+        try {
+          for (let username of targets) {
+            const target = users.find(u => u.username === username);
+            const amt = bulkAmountType === "flat" ? Number(flatAmount) : Number(customAmounts[username] || 0);
+            const newBalance = Number(target.balance) - amt;
+
+            await supabaseRequest(`profiles?username=eq.${encodeURIComponent(username)}`, {
+              method: "PATCH",
+              body: JSON.stringify({ balance: newBalance })
+            });
+
+            await supabaseRequest("transactions", {
+              method: "POST",
+              body: JSON.stringify({ target_user: username, type: "Deduction", amount: amt, executed_by: user.username, remarks: deductionRemarks })
+            });
+          }
+          alert("Deductions processed successfully across selected profiles.");
+          setBulkSelection({});
+          setCustomAmounts({});
+          loadData();
+        } catch (err) { alert(err.message); }
+        setLoading(false);
+      };
+
+      const toggleRole = async (targetUser, currentRole) => {
+        const newRole = currentRole === "Super User" ? "Simple User" : "Super User";
+        setLoading(true);
+        try {
+          await supabaseRequest(`profiles?username=eq.${encodeURIComponent(targetUser)}`, {
+            method: "PATCH",
+            body: JSON.stringify({ role: newRole })
+          });
+          loadData();
+        } catch (err) { alert(err.message); }
+        setLoading(false);
+      };
+
+      const deleteUser = async (targetUser) => {
+        if (!confirm(`Permanently delete ${targetUser}?`)) return;
+        setLoading(true);
+        try {
+          await supabaseRequest(`profiles?username=eq.${encodeURIComponent(targetUser)}`, { method: "DELETE" });
+          loadData();
+        } catch (err) { alert(err.message); }
+        setLoading(false);
+      };
+
+      // Math metrics filters for user summary cards
+      const filterTx = (type) => transactions.filter(t => (user.role === 'Super User' || t.target_user === user.username) && t.type === type).reduce((acc, c) => acc + Number(c.amount), 0);
+
+      if (!user) {
+        return (
+          <div class="min-h-screen flex items-center justify-center p-4">
+            <div class="bg-white p-8 rounded-2xl shadow-xl w-full max-w-md border border-gray-100">
+              <div class="text-center mb-6">
+                <h1 class="text-3xl font-extrabold text-blue-700 tracking-tight">PIU LUNCH</h1>
+                <p class="text-gray-500 text-sm mt-1">Portal Balance Management System</p>
+              </div>
+              {loginError && <div class="bg-red-50 text-red-600 p-3 rounded-xl text-sm mb-4 border border-red-100">{loginError}</div>}
+              <form onSubmit={handleLogin} class="space-y-4">
+                <div>
+                  <label class="block text-xs font-semibold uppercase tracking-wider text-gray-600">Username</label>
+                  <input type="text" required class="mt-1 block w-full p-3 border rounded-xl bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none transition" value={loginForm.username} onChange={e => setLoginForm({...loginForm, username: e.target.value})} />
+                </div>
+                <div>
+                  <label class="block text-xs font-semibold uppercase tracking-wider text-gray-600">Password</label>
+                  <input type="password" required class="mt-1 block w-full p-3 border rounded-xl bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none transition" value={loginForm.password} onChange={e => setLoginForm({...loginForm, password: e.target.value})} />
+                </div>
+                <button type="submit" disabled={loading} class="w-full bg-blue-600 text-white p-3 rounded-xl font-bold hover:bg-blue-700 shadow-lg shadow-blue-200 transition disabled:opacity-50">
+                  {loading ? "Authenticating Session..." : "Secure Login"}
+                </button>
+              </form>
+            </div>
+          </div>
+        );
+      }
+
+      return (
+        <div class="min-h-screen flex flex-col">
+          <header class="bg-blue-700 text-white p-4 shadow-md flex justify-between items-center">
+            <div>
+              <h1 class="text-xl font-black tracking-wide">PIU LUNCH SYSTEM</h1>
+              <p class="text-xs text-blue-100 opacity-90">User: <span class="font-bold">{user.username}</span> ({user.role})</p>
+            </div>
+            <button onClick={() => setUser(null)} class="bg-blue-800 px-4 py-2 rounded-xl text-xs font-bold hover:bg-blue-950 transition">Log Out</button>
+          </header>
+
+          <div class="p-4 grid grid-cols-2 md:grid-cols-3 gap-4 max-w-7xl w-full mx-auto">
+            <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+              <span class="text-xs font-bold text-gray-400 uppercase tracking-wider">Your Balance</span>
+              <div class="text-2xl font-black text-blue-600 mt-1">Rs. {user.balance}</div>
+            </div>
+            <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+              <span class="text-xs font-bold text-gray-400 uppercase tracking-wider">Total Credits Injected</span>
+              <div class="text-2xl font-black text-emerald-600 mt-1">Rs. {filterTx('Credit')}</div>
+            </div>
+            <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-100 col-span-2 md:col-span-1">
+              <span class="text-xs font-bold text-gray-400 uppercase tracking-wider">Total Deductions Fixed</span>
+              <div class="text-2xl font-black text-rose-600 mt-1">Rs. {filterTx('Deduction')}</div>
+            </div>
+          </div>
+
+          <div class="px-4 flex bg-white shadow-sm border-b overflow-x-auto gap-6 justify-start md:justify-center">
+            <button onClick={() => setActiveTab("dashboard")} class={`py-4 px-1 font-bold text-sm tracking-wide border-b-2 transition ${activeTab === 'dashboard' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500'}`}>Transactions Ledger</button>
+            {user.role === "Super User" && (
+              <React.Fragment>
+                <button onClick={() => setActiveTab("deduct")} class={`py-4 px-1 font-bold text-sm tracking-wide border-b-2 transition ${activeTab === 'deduct' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500'}`}>Deductions Terminal</button>
+                <button onClick={() => setActiveTab("users")} class={`py-4 px-1 font-bold text-sm tracking-wide border-b-2 transition ${activeTab === 'users' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500'}`}>User Directory Control</button>
+              </React.Fragment>
+            )}
+          </div>
+
+          <main class="flex-1 p-4 max-w-7xl w-full mx-auto">
+            {loading && <div class="text-center p-4 font-bold text-blue-600 animate-pulse">Syncing with secure system database cloud...</div>}
+
+            {activeTab === "dashboard" && (
+              <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                <div class="flex justify-between items-center mb-4">
+                  <h2 class="text-lg font-black text-gray-800">System Transaction Logs</h2>
+                  <button onClick={loadData} class="text-xs bg-gray-100 text-gray-600 font-bold px-3 py-1.5 rounded-lg hover:bg-gray-200">Refresh Data</button>
+                </div>
+                <div class="overflow-x-auto">
+                  <table class="w-full text-left text-sm">
+                    <thead>
+                      <tr class="bg-gray-50 border-b text-gray-400 uppercase font-bold text-xs tracking-wider">
+                        <th class="p-3">Date/Time</th>
+                        <th class="p-3">Staff Target</th>
+                        <th class="p-3">Type</th>
+                        <th class="p-3">Amount</th>
+                        <th class="p-3">Authorized By</th>
+                        <th class="p-3">Remarks</th>
+                      </tr>
+                    </thead>
+                    <tbody class="divide-y text-gray-700 font-medium">
+                      {transactions.filter(t => user.role === 'Super User' || t.target_user === user.username).map((t, idx) => (
+                        <tr key={idx} class="hover:bg-gray-50/80">
+                          <td class="p-3 text-xs text-gray-400">{new Date(t.timestamp).toLocaleString()}</td>
+                          <td class="p-3 font-bold text-gray-900">{t.target_user}</td>
+                          <td class="p-3"><span class={`px-2.5 py-1 rounded-full text-xs font-black ${t.type === 'Credit' ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>{t.type}</span></td>
+                          <td class="p-3 font-extrabold">Rs. {t.amount}</td>
+                          <td class="p-3 text-xs text-gray-500">{t.executed_by}</td>
+                          <td class="p-3 text-xs max-w-xs truncate text-gray-400">{t.remarks || "-"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {activeTab === "deduct" && user.role === "Super User" && (
+              <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-4">
+                <h2 class="text-lg font-black text-gray-800">Batch Deduction Controls</h2>
+                <div class="grid md:grid-cols-3 gap-4 bg-gray-50 p-4 rounded-xl border border-gray-200/60">
+                  <div>
+                    <label class="block text-xs font-bold uppercase tracking-wider text-gray-500">Billing Logic</label>
+                    <select class="mt-1 w-full p-2.5 border rounded-xl bg-white font-semibold text-sm outline-none" value={bulkAmountType} onChange={e => setBulkAmountType(e.target.value)}>
+                      <option value="flat">Standard Equal Mass Charge</option>
+                      <option value="custom">Custom Unique User Scale Overrides</option>
+                    </select>
+                  </div>
+                  {bulkAmountType === "flat" && (
+                    <div>
+                      <label class="block text-xs font-bold uppercase tracking-wider text-gray-500">Deduction Amount (Rs.)</label>
+                      <input type="number" class="mt-1 w-full p-2.5 border rounded-xl text-sm font-bold outline-none" value={flatAmount} onChange={e => setFlatAmount(e.target.value)} />
+                    </div>
+                  )}
+                  <div>
+                    <label class="block text-xs font-bold uppercase tracking-wider text-gray-500">Transaction Remarks Memo</label>
+                    <input type="text" class="mt-1 w-full p-2.5 border rounded-xl text-sm outline-none" value={deductionRemarks} onChange={e => setDeductionRemarks(e.target.value)} />
+                  </div>
+                </div>
+
+                <div class="max-h-96 overflow-y-auto border border-gray-100 rounded-xl">
+                  <table class="w-full text-left text-sm">
+                    <thead class="bg-gray-50 text-gray-400 uppercase font-bold text-xs tracking-wider sticky top-0">
+                      <tr>
+                        <th class="p-3 w-12 text-center">Select</th>
+                        <th class="p-3">Staff Profile ID</th>
+                        <th class="p-3">Current Balance</th>
+                        {bulkAmountType === "custom" && <th class="p-3 w-40">Amount (Rs.)</th>}
+                      </tr>
+                    </thead>
+                    <tbody class="divide-y text-gray-700 font-medium">
+                      {users.map((u, i) => (
+                        <tr key={i} class={`hover:bg-gray-50/60 ${bulkSelection[u.username] ? 'bg-blue-50/30' : ''}`}>
+                          <td class="p-3 text-center">
+                            <input type="checkbox" checked={!!bulkSelection[u.username]} onChange={() => setBulkSelection(p => ({ ...p, [u.username]: !p[u.username] }))} class="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-0" />
+                          </td>
+                          <td class="p-3 font-bold text-gray-900">{u.username} <span class="text-xs text-gray-400 font-normal">({u.role})</span></td>
+                          <td class="p-3 text-gray-600">Rs. {u.balance}</td>
+                          {bulkAmountType === "custom" && (
+                            <td class="p-1">
+                              <input type="number" disabled={!bulkSelection[u.username]} placeholder="0" class="w-full p-2 text-sm border rounded-lg font-bold disabled:bg-gray-50 text-center outline-none" value={customAmounts[u.username] || ""} onChange={e => setCustomAmounts({...customAmounts, [u.username]: e.target.value})} />
+                            </td>
+                          )}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <button onClick={executeBulkDeduction} class="w-full md:w-auto bg-rose-600 text-white font-bold text-sm px-6 py-3 rounded-xl hover:bg-rose-700 shadow-md transition">Apply Mass Ledger Adjustments</button>
+              </div>
+            )}
+
+            {activeTab === "users" && user.role === "Super User" && (
+              <div class="grid md:grid-cols-3 gap-6">
+                <div class="space-y-6">
+                  <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+                    <h3 class="font-black text-gray-800 text-md mb-3">Register New Entry</h3>
+                    <form onSubmit={handleCreateUser} class="space-y-3">
+                      <input type="text" placeholder="Username" required class="w-full p-2.5 border rounded-xl text-sm outline-none" value={newUser.username} onChange={e => setNewUser({...newUser, username: e.target.value})} />
+                      <input type="password" placeholder="Password" required class="w-full p-2.5 border rounded-xl text-sm outline-none" value={newUser.password} onChange={e => setNewUser({...newUser, password: e.target.value})} />
+                      <button type="submit" class="w-full bg-blue-600 text-white p-2.5 rounded-xl font-bold text-xs uppercase tracking-wider hover:bg-blue-700 transition">Save Profile</button>
+                    </form>
+                  </div>
+
+                  <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+                    <h3 class="font-black text-gray-800 text-md mb-3">Add Balance Credit</h3>
+                    <form onSubmit={handleAddCredit} class="space-y-3">
+                      <select required class="w-full p-2.5 border rounded-xl text-sm bg-white font-semibold outline-none" value={creditForm.username} onChange={e => setCreditForm({...creditForm, username: e.target.value})}>
+                        <option value="">Choose User Target</option>
+                        {users.map((u, i) => <option key={i} value={u.username}>{u.username}</option>)}
+                      </select>
+                      <input type="number" placeholder="Credit Amount (Rs.)" required class="w-full p-2.5 border rounded-xl text-sm font-bold outline-none" value={creditForm.amount} onChange={e => setCreditForm({...creditForm, amount: e.target.value})} />
+                      <input type="text" placeholder="Remarks/Memo" class="w-full p-2.5 border rounded-xl text-sm outline-none" value={creditForm.remarks} onChange={e => setCreditForm({...creditForm, remarks: e.target.value})} />
+                      <button type="submit" class="w-full bg-emerald-600 text-white p-2.5 rounded-xl font-bold text-xs uppercase tracking-wider hover:bg-emerald-700 transition">Confirm Funding Deposit</button>
+                    </form>
+                  </div>
+                </div>
+
+                <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 md:col-span-2">
+                  <h3 class="font-black text-gray-800 text-md mb-4">Users Directory Registry</h3>
+                  <div class="overflow-x-auto">
+                    <table class="w-full text-left text-sm">
+                      <thead class="bg-gray-50 text-gray-400 uppercase font-bold text-xs tracking-wider">
+                        <tr class="border-b">
+                          <th class="p-3">Username</th>
+                          <th class="p-3">Privileges Role</th>
+                          <th class="p-3">Active Balance</th>
+                          <th class="p-3 text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody class="divide-y text-gray-700 font-medium">
+                        {users.map((u, i) => (
+                          <tr key={i} class="hover:bg-gray-50/80">
+                            <td class="p-3 font-bold text-gray-900">{u.username}</td>
+                            <td class="p-3"><span class={`px-2.5 py-0.5 rounded-full text-xs font-black ${u.role === 'Super User' ? 'bg-purple-50 text-purple-700' : 'bg-gray-100 text-gray-700'}`}>{u.role}</span></td>
+                            <td class="p-3 font-extrabold text-blue-600">Rs. {u.balance}</td>
+                            <td class="p-3 text-right space-x-2 whitespace-nowrap">
+                              <button onClick={() => toggleRole(u.username, u.role)} class="text-xs bg-gray-100 text-gray-600 px-2.5 py-1.5 rounded-lg font-bold hover:bg-gray-200 transition">Toggle Admin</button>
+                              <button onClick={() => deleteUser(u.username)} class="text-xs bg-rose-50 text-rose-600 px-2.5 py-1.5 rounded-lg font-bold hover:bg-rose-100 transition">Purge</button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+          </main>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
