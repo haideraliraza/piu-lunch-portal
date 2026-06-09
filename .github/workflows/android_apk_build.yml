@@ -31,7 +31,7 @@ jobs:
           sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0" --sdk_root=$ANDROID_HOME
 
       - name: Setup Node Platform Build Engine Layer Environments Pipelines Execution Core
-        uses: actions/node@v4
+        uses: actions/setup-node@v4
         with:
           node-version: 18
 
