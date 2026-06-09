@@ -6,7 +6,7 @@ on:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
-  JAVA_VERSION: '17' # Cordova Android 10+ works best with Java 11 or 17
+  JAVA_VERSION: '17'
 
 jobs:
   build:
@@ -44,14 +44,12 @@ jobs:
 
     - name: Build Android Platform Target Packages
       run: |
-        cd lunch-app
-        # Remove and re-add platform clean to clear out bad cached Gradle wrapper paths
+        # We removed "cd lunch-app" because your files are in the main folder
         cordova platform rm android --noscript || true
         cordova platform add android
         
     - name: Compile distribution Android production ready binary built packages
       run: |
-        cd lunch-app
-        # Explicitly pass the Android Studio / runner path variables to Cordova
+        # Building directly from the root folder
         export ANDROID_HOME=$ANDROID_SDK_ROOT
         cordova build android --release --no-telemetry
