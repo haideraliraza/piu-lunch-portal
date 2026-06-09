@@ -34,22 +34,33 @@ jobs:
       run: |
         yes | sdkmanager --licenses || true
 
-    - name: Install Global CLI Bundles
+    - name: Install Global Cordova CLI
       run: |
         npm install -g cordova
 
-    - name: Install Dependencies and Assemble Assets
+    - name: Initialize App Container and Compile APK
       run: |
-        if [ -f package.json ]; then npm install; fi
-
-    - name: Build Android Platform Target Packages
-      run: |
-        # We removed "cd lunch-app" because your files are in the main folder
-        cordova platform rm android --noscript || true
+        # 1. Create a fresh Cordova project folder inside the runner workspace
+        cordova create lunch-build-container com.piu.lunchportal "PIU Lunch Portal"
+        
+        # 2. Move into that fresh project directory
+        cd lunch-build-container
+        
+        # 3. Clear out Cordova's default placeholder web page files
+        rm -rf www/*
+        
+        # 4. Copy your custom Supabase index.html file into the Cordova web assets directory
+        cp ../index.html www/index.html
+        
+        # 5. Add the clean native Android platform layer
         cordova platform add android
         
-    - name: Compile distribution Android production ready binary built packages
-      run: |
-        # Building directly from the root folder
+        # 6. Compile your distribution production-ready release binary package
         export ANDROID_HOME=$ANDROID_SDK_ROOT
         cordova build android --release --no-telemetry
+
+    - name: Upload Downloadable APK Installer Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: piu-lunch-app-apk
+        path: lunch-build-container/platforms/android/app/build/outputs/apk/release/app-release-unsigned.apk
