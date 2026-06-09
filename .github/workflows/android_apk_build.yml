@@ -63,4 +63,5 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: piu-lunch-app-apk
-        path: lunch-build-container/platforms/android/app/build/outputs/apk/release/app-release-unsigned.apk
+        # This wildcard pattern searches all folders to guarantee it catches the file
+        path: lunch-build-container/**/*.apk
