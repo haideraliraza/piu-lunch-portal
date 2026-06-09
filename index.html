@@ -26,6 +26,7 @@
           "Content-Type": "application/json",
           "Accept-Profile": "public",
           "Content-Profile": "public",
+          "Prefer": "return=representation", // Forces Supabase to return payload JSON data on mutations
           ...options.headers
         };
 
@@ -34,6 +35,8 @@
           const errorText = await response.text();
           throw new Error(`API Error ${response.status}: ${errorText}`);
         }
+        
+        if (response.status === 204) return null; // Safe exit for empty content (Deletions)
         return await response.json();
       };
 
@@ -55,8 +58,7 @@
       const [customAmounts, setCustomAmounts] = React.useState({});
       const [deductionRemarks, setDeductionRemarks] = React.useState("Daily Lunch Deduction");
 
-      // FIX #1: Run data sync ONLY when the user initially logs in, OR when switching tabs.
-      // This stops the infinite loop caused by tracking the changing [user] state object.
+      // Run data sync ONLY when the user initially logs in, OR when switching tabs.
       React.useEffect(() => {
         if (user && user.username) { 
           loadData(); 
@@ -96,7 +98,6 @@
           const fetchedUsers = await supabaseRequest("profiles?select=*&order=username.asc");
           setUsers(fetchedUsers);
           
-          // Sync self context cleanly without breaking React's hook trigger tracking cycles
           if (user && user.username) {
             const self = fetchedUsers.find(u => u.username === user.username);
             if (self && self.balance !== user.balance) { 
@@ -268,7 +269,6 @@
           </div>
 
           <main class="flex-1 p-4 max-w-7xl w-full mx-auto">
-            {/* FIX #2: Moved the sync block down inside main so loading state handles gracefully */}
             {loading && (
               <div class="bg-blue-50 text-blue-700 text-center p-3 rounded-xl font-bold border border-blue-100 mb-4 animate-pulse text-sm">
                 Syncing with secure system database cloud...
