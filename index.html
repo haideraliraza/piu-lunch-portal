@@ -160,24 +160,41 @@
         try {
           for (let username of targets) {
             const target = users.find(u => u.username === username);
+            
+            // Fail-safe: Skip loop iteration gracefully if profile matching fails in state cache
+            if (!target) {
+              console.warn(`Profile cache mismatch for user: ${username}`);
+              continue;
+            }
+
             const amt = bulkAmountType === "flat" ? Number(flatAmount) : Number(customAmounts[username] || 0);
             const newBalance = Number(target.balance) - amt;
 
+            // 1. Update the profile balance record via filter parameters
             await supabaseRequest(`profiles?username=eq.${encodeURIComponent(username)}`, {
               method: "PATCH",
               body: JSON.stringify({ balance: newBalance })
             });
 
+            // 2. Insert into ledger ledger. Fallback to target.id if database column expects an integer row pointer
             await supabaseRequest("transactions", {
               method: "POST",
-              body: JSON.stringify({ target_user: username, type: "Deduction", amount: amt, executed_by: user.username, remarks: deductionRemarks })
+              body: JSON.stringify({ 
+                target_user: target.username, // Change to target.id if your DB uses an ID integer reference here
+                type: "Deduction", 
+                amount: amt, 
+                executed_by: user.username, 
+                remarks: deductionRemarks 
+              })
             });
           }
           alert("Deductions processed successfully across selected profiles.");
           setBulkSelection({});
           setCustomAmounts({});
           loadData();
-        } catch (err) { alert(err.message); }
+        } catch (err) { 
+          alert("Deduction Processing Error: " + err.message); 
+        }
         setLoading(false);
       };
 
