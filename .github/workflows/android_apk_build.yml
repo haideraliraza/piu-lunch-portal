@@ -1,0 +1,63 @@
+name: Generate Standalone Android Portal APK Installer Binary File
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  package-android-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source Assets Code Tree Nodes Files Repository From Cloud Workspace
+        uses: actions/checkout@v4
+
+      - name: Setup Java Development Kit Runtime Engine Virtual System Environment Environment
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Install Android Command Line Development SDK Native Tools Pipeline Binaries
+        run: |
+          sudo apt-get update && sudo apt-get install -y wget unzip
+          mkdir -p android-sdk/cmdline-tools
+          wget https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O cmdline.zip
+          unzip cmdline.zip -d android-sdk/cmdline-tools
+          mv android-sdk/cmdline-tools/cmdline-tools android-sdk/cmdline-tools/latest
+          export ANDROID_HOME=$PWD/android-sdk
+          export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools
+          yes | sdkmanager --licenses --sdk_root=$ANDROID_HOME
+          sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0" --sdk_root=$ANDROID_HOME
+
+      - name: Setup Node Platform Build Engine Layer Environments Pipelines Execution Core
+        uses: actions/node@v4
+        with:
+          node-version: 18
+
+      - name: Initialize Lightweight Native Cross Platform Web Wrapper Shell Boilerplate Code Assets Template
+        run: |
+          npm install -g cordova
+          cordova create lunch-app com.piu.lunchmanagement PIULunchBalance
+          cd lunch-app
+          cordova platform add android
+          rm -rf www/*
+          cp ../index.html www/index.html
+
+      - name: Inject Android Progressive Native Icon Configurations Meta Data Manifest Overrides
+        run: |
+          cd lunch-app
+          sed -i 's/<preference name="JavaScriptCanOpenWindowsAutomatically" value="true" \/>/<preference name="JavaScriptCanOpenWindowsAutomatically" value="true" \/>\n    <preference name="AllowInlineMediaPlayback" value="true" \/>\n    <preference name="ClearAppCache" value="false" \/>/g' config.xml
+
+      - name: Compile Distribution Android Production Ready Release Unsigned Target Binary Build Packages
+        run: |
+          export ANDROID_HOME=$PWD/android-sdk
+          export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/build-tools/34.0.0
+          cd lunch-app
+          cordova build android --release -- --packageType=apk
+
+      - name: Track Artifact Output Delivery Target Payload Distribution To Release Workflow Pipelines Channels
+        uses: actions/upload-artifact@v4
+        with:
+          name: piu-lunch-installer-apk-payload
+          path: lunch-app/platforms/android/app/build/outputs/apk/release/app-release-unsigned.apk
