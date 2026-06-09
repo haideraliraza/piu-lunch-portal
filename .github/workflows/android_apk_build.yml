@@ -1,66 +1,57 @@
-name: Generate Standalone Android Portal APK Installer Binary File
+name: Android APK Build
+
 on:
   push:
-    branches:
-      - main
-  workflow_dispatch:
+    branches: [ main ]
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+  JAVA_VERSION: '17' # Cordova Android 10+ works best with Java 11 or 17
 
 jobs:
-  package-android-apk:
+  build:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout Source Assets Code Tree Nodes Files Repository From Cloud Workspace
-        uses: actions/checkout@v4
+    - name: Checkout Source Code repository
+      uses: actions/checkout@v4
 
-      - name: Setup Java Development Kit Runtime Engine Virtual System Environment Environment
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'zulu'
-          java-version: '17'
+    - name: Set up Java Development Kit
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'zulu'
+        java-version: ${{ env.JAVA_VERSION }}
 
-      - name: Install Android Command Line Development SDK Native Tools Pipeline Binaries
-        run: |
-          sudo apt-get update && sudo apt-get install -y wget unzip
-          mkdir -p android-sdk/cmdline-tools
-          wget https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O cmdline.zip
-          unzip cmdline.zip -d android-sdk/cmdline-tools
-          mv android-sdk/cmdline-tools/cmdline-tools android-sdk/cmdline-tools/latest
-          export ANDROID_HOME=$PWD/android-sdk
-          export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools
-          yes | sdkmanager --licenses --sdk_root=$ANDROID_HOME
-          sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0" --sdk_root=$ANDROID_HOME
+    - name: Setup Node.js Runtime Engine
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20
 
-      - name: Setup Node Platform Build Engine Layer Environments Pipelines Execution Core
-        uses: actions/setup-node@v4
-        with:
-          node-version: 18
+    - name: Install Android SDK Capabilities
+      uses: android-actions/setup-android@v3
 
-      - name: Initialize Lightweight Native Cross Platform Web Wrapper Shell Boilerplate Code Assets Template
-        run: |
-          npm install -g cordova
-          cordova create lunch-app com.piu.lunchmanagement PIULunchBalance
-          cd lunch-app
-          cordova platform add android
-          rm -rf www/*
-          cp ../index.html www/index.html
+    - name: Accept Android SDK Licences automatically
+      run: |
+        yes | sdkmanager --licenses || true
 
-      - name: Inject Android Progressive Native Icon Configurations Meta Data Manifest Overrides
-        run: |
-          cd lunch-app
-          sed -i 's/<preference name="JavaScriptCanOpenWindowsAutomatically" value="true" \/>/<preference name="JavaScriptCanOpenWindowsAutomatically" value="true" \/>\n    <preference name="AllowInlineMediaPlayback" value="true" \/>\n    <preference name="ClearAppCache" value="false" \/>/g' config.xml
+    - name: Install Global CLI Bundles
+      run: |
+        npm install -g cordova
 
-      - name: Compile Distribution Android Production Ready Release Unsigned Target Binary Build Packages
-        run: |
-          export ANDROID_HOME=$PWD/android-sdk
-          export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/build-tools/34.0.0
-          cd lunch-app
-          cordova build android --release -- --packageType=apk
+    - name: Install Dependencies and Assemble Assets
+      run: |
+        if [ -f package.json ]; then npm install; fi
 
-      - name: Track Artifact Output Delivery Target Payload Distribution To Release Workflow Pipelines Channels
-        uses: actions/upload-artifact@v4
-        with:
-          name: piu-lunch-installer-apk-payload
-          path: lunch-app/platforms/android/app/build/outputs/apk/release/app-release-unsigned.apk
+    - name: Build Android Platform Target Packages
+      run: |
+        cd lunch-app
+        # Remove and re-add platform clean to clear out bad cached Gradle wrapper paths
+        cordova platform rm android --noscript || true
+        cordova platform add android
+        
+    - name: Compile distribution Android production ready binary built packages
+      run: |
+        cd lunch-app
+        # Explicitly pass the Android Studio / runner path variables to Cordova
+        export ANDROID_HOME=$ANDROID_SDK_ROOT
+        cordova build android --release --no-telemetry
