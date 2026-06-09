@@ -55,8 +55,8 @@ jobs:
         export ANDROID_HOME=$ANDROID_SDK_ROOT
         
         echo "=== Launching Cordova Compilation Pipeline ==="
-        # Run compilation. If it fails, the "|| exit 1" forces GitHub to turn red and stop right here.
-        cordova build android --release --no-telemetry || exit 1
+        # Added --packageType=apk to force Cordova to generate a downloadable APK file
+        cordova build android --release --no-telemetry -- --packageType=apk || exit 1
         
         # 5. Extract the generated APK and copy it safely to the main repository root
         echo "=== Locating compiled binaries ==="
